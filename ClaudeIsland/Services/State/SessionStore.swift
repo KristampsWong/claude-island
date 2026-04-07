@@ -110,7 +110,23 @@ actor SessionStore {
             break
         }
 
-        publishState()
+        // Permission-related events bypass the publish debounce — showing or
+        // dismissing the approval prompt is the most latency-sensitive UI in
+        // the app, and the worst-case ~195ms wait-in-debounce window is the
+        // most likely place for that latency to be user-visible. Routine
+        // PreToolUse / PostToolUse bursts still get coalesced normally.
+        let forcePublish: Bool = {
+            switch event {
+            case .permissionApproved, .permissionDenied, .permissionSocketFailed:
+                return true
+            case .hookReceived(let hookEvent) where hookEvent.expectsResponse:
+                return true
+            default:
+                return false
+            }
+        }()
+
+        publishState(force: forcePublish)
     }
 
     // MARK: - Hook Event Processing
@@ -980,7 +996,19 @@ actor SessionStore {
     private var pendingPublish: Task<Void, Never>?
     private var lastPublishTime: CFAbsoluteTime = 0
 
-    private func publishState() {
+    /// Publish session state to subscribers.
+    /// - Parameter force: When true, bypass the leading-edge throttle and trailing
+    ///   debounce and publish immediately. Used for permission-related events
+    ///   where any added latency is directly visible in the approval-prompt UI.
+    private func publishState(force: Bool = false) {
+        if force {
+            pendingPublish?.cancel()
+            pendingPublish = nil
+            lastPublishTime = CFAbsoluteTimeGetCurrent()
+            doPublish()
+            return
+        }
+
         let now = CFAbsoluteTimeGetCurrent()
 
         // Leading edge: publish immediately if enough time has passed
