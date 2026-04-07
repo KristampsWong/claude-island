@@ -2,9 +2,30 @@
 //  EventMonitors.swift
 //  ClaudeIsland
 //
-//  Singleton that aggregates all event monitors.
-//  Uses CGEventTap on a dedicated background thread so main-thread
-//  SwiftUI blocking can never stall event delivery.
+//  Singleton that aggregates NSEvent global + local monitors. Subscribers
+//  consume `mouseLocation` (CGPoint) and `mouseDown` (Void trigger) via
+//  Combine — see `NotchViewModel.setupEventHandlers`.
+//
+//  Why NSEvent rather than CGEventTap:
+//
+//  CGEvent.tapCreate requires the Input Monitoring TCC permission. On
+//  ad-hoc signed Debug builds the bundle frequently fails to register in
+//  System Settings → Privacy & Security → Input Monitoring at all (the
+//  user has to add it via the +/- button), and even when it does the tap
+//  silently no-ops until the grant flips, leaving the user with a
+//  notch-only app they cannot reach. NSEvent global monitors for mouse
+//  events do not require any TCC grant on modern macOS, so the only
+//  remaining TCC dependency is Accessibility — needed solely by
+//  `NotchViewModel.repostClickAt`'s `CGEvent.post(tap: .cghidEventTap)`.
+//
+//  The terminal-lag bug that originally motivated the CGEventTap
+//  migration (KristampsWong/whisper-island#1) is fixed at its root by
+//  the SwiftUI diff cost reductions still in place in `SessionStore`
+//  (`publishState` throttle/debounce) and `ChatHistoryItem` (monotonic
+//  version counter for O(1) Equatable). Those layers stay; only the
+//  defensive event-delivery layer is being removed.
+//
+//  See: docs/superpowers/plans/2026-04-07-revert-cgevent-tap.md
 //
 
 import AppKit
@@ -18,74 +39,40 @@ class EventMonitors {
 
     private var mouseMoveMonitor: EventMonitor?
     private var mouseDownMonitor: EventMonitor?
-
-    /// Minimum interval between mouse location updates (source-level throttle)
-    private let throttleInterval: TimeInterval = 0.05 // 50ms = 20Hz max
-    private var lastMouseLocationTime: CFAbsoluteTime = 0
-
-    /// Whether event forwarding is currently paused
-    private(set) var isPaused = false
+    private var mouseDraggedMonitor: EventMonitor?
 
     private init() {
         setupMonitors()
     }
 
     private func setupMonitors() {
-        // Mouse move + drag — both just update location
-        let moveMask: CGEventMask = (1 << CGEventType.mouseMoved.rawValue)
-            | (1 << CGEventType.leftMouseDragged.rawValue)
-
-        mouseMoveMonitor = EventMonitor(mask: moveMask) { [weak self] _ in
-            self?.throttledSendMouseLocation()
+        mouseMoveMonitor = EventMonitor(mask: .mouseMoved) { [weak self] _ in
+            self?.mouseLocation.send(NSEvent.mouseLocation)
         }
         mouseMoveMonitor?.start()
 
-        // Mouse down
-        let downMask: CGEventMask = 1 << CGEventType.leftMouseDown.rawValue
-        mouseDownMonitor = EventMonitor(mask: downMask) { [weak self] _ in
-            guard self?.isPaused != true else { return }
+        mouseDownMonitor = EventMonitor(mask: .leftMouseDown) { [weak self] _ in
             self?.mouseDown.send()
         }
         mouseDownMonitor?.start()
+
+        mouseDraggedMonitor = EventMonitor(mask: .leftMouseDragged) { [weak self] _ in
+            self?.mouseLocation.send(NSEvent.mouseLocation)
+        }
+        mouseDraggedMonitor?.start()
     }
-
-    /// Source-level throttle: skip if called within throttleInterval of last send.
-    /// The CGEvent from the tap is used purely as a "mouse moved" trigger —
-    /// its .location is intentionally ignored. We previously converted it via
-    /// `NSScreen.main!.frame.height - cgPoint.y`, but `NSScreen.main` is the
-    /// key window's screen (not the primary screen), so on multi-monitor setups
-    /// where the active window lives on a screen with a different height than
-    /// the primary, the converted Y was wrong by `(mainHeight - primaryHeight)`
-    /// and notch hover detection silently broke. `NSEvent.mouseLocation` already
-    /// returns AppKit global coordinates anchored to the primary screen, and is
-    /// safe to call from this background tap thread (it's a stateless getter
-    /// that doesn't touch any NSWindow state).
-    private func throttledSendMouseLocation() {
-        guard !isPaused else { return }
-        let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastMouseLocationTime >= throttleInterval else { return }
-        lastMouseLocationTime = now
-
-        mouseLocation.send(NSEvent.mouseLocation)
-    }
-
-    // MARK: - Pause / Resume
-
-    func pause() { isPaused = true }
-    func resume() { isPaused = false }
-
-    // MARK: - Shutdown
 
     /// Stop all event monitors. Singletons never `deinit`, so termination
-    /// must call this explicitly to release the CGEventTap and let the
-    /// dedicated CFRunLoop thread exit — otherwise the run loop would
-    /// keep the process alive after Quit.
+    /// must call this explicitly to release the global / local NSEvent
+    /// monitors that would otherwise keep the run loop alive after Quit.
+    /// Wired into `AppDelegate.applicationWillTerminate`.
     func stop() {
         mouseMoveMonitor?.stop()
         mouseMoveMonitor = nil
         mouseDownMonitor?.stop()
         mouseDownMonitor = nil
-        isPaused = false
+        mouseDraggedMonitor?.stop()
+        mouseDraggedMonitor = nil
     }
 
     deinit { stop() }

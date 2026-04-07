@@ -4,29 +4,29 @@
 //
 //  Owns a small NSStatusItem in the system menu bar that gives users a
 //  permanent escape hatch — independent of the notch panel and the
-//  CGEventTap-driven hover/click pipeline.
+//  global event monitor pipeline.
 //
 //  Why this exists:
 //
-//  Without this, a user who denies (or simply hasn't yet decided on) the
-//  Input Monitoring TCC prompt on first launch has *no* way to reach the
-//  in-notch Quit button. The only ways to open the notch panel are:
+//  The notch is the only primary UI surface for the app: activation
+//  policy is `.accessory` (no Dock icon) and there is no other status
+//  item. Hover and click on the notch are driven by global NSEvent
+//  monitors plus `NotchViewModel.repostClickAt` (which uses
+//  `CGEvent.post` and therefore needs the Accessibility TCC grant).
+//  If the user declines Accessibility, or if the notch becomes
+//  unresponsive for any other reason, the only ways to recover are:
 //
-//    1. Hover or click the notch — both driven by CGEventTap, which
-//       requires Input Monitoring and silently no-ops without it.
-//    2. The boot animation, which auto-opens the notch for ~1 second on
-//       launch and then auto-closes itself.
-//    3. A pending PermissionRequest from a running Claude session.
+//    1. The boot animation, which auto-opens the notch for ~1 second
+//       on launch and then auto-closes itself.
+//    2. A pending PermissionRequest from a running Claude session.
 //
-//  None of those help a fresh user who just declined the system prompt
-//  and has no Claude sessions running. Combined with `.accessory`
-//  activation policy (no Dock icon) and the absence of any other
-//  NSStatusItem, the user is fully locked out and has to discover the
-//  process in Activity Monitor to kill it.
+//  Neither helps a fresh user who has no Claude sessions running.
+//  Force-quitting via Activity Monitor is the only fallback without
+//  this status item.
 //
 //  This status item is the always-available rescue path: clicking it
-//  works regardless of TCC state, and its Quit menu item lets the user
-//  recover even if the notch is completely unresponsive.
+//  works regardless of TCC state, and its Quit menu item lets the
+//  user recover even if the notch is completely unresponsive.
 //
 
 import AppKit
@@ -115,9 +115,10 @@ final class StatusItemController {
         guard let viewModel = AppDelegate.shared?.windowController?.viewModel else { return }
         // Open the panel first (which may restore a saved chat session) and
         // then force the content view to the settings menu so the user lands
-        // on the same panel that hosts Input Monitoring / Accessibility / Quit.
-        // This is the documented recovery path when the global event tap is
-        // dead and the in-notch hamburger button is unreachable.
+        // on the same panel that hosts the Accessibility row and Quit. This
+        // is the documented recovery path when the in-notch hamburger button
+        // is unreachable for any reason (denied Accessibility, hover
+        // detection wedged, etc.).
         viewModel.notchOpen(reason: .click)
         if viewModel.contentType != .menu {
             viewModel.toggleMenu()
