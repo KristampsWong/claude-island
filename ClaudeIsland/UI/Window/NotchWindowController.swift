@@ -68,7 +68,8 @@ class NotchWindowController: NSWindowController {
         // BEFORE status changes, so focus is released on the same runloop tick
         // as the user's click. The status sink below also resets these on close,
         // but it runs async (next runloop tick) and that gap is enough for the
-        // CGEventTap to observe phantom events from the in-flight focus change.
+        // global NSEvent mouse-down monitor to observe a phantom click from the
+        // in-flight focus change.
         viewModel.onClosePanel = { [weak self, weak notchWindow] in
             notchWindow?.ignoresMouseEvents = true
             notchWindow?.resignKey()
@@ -98,7 +99,7 @@ class NotchWindowController: NSWindowController {
                     // so buttons work. NSApp.activate is deferred until the user
                     // actually interacts with a text field (see activateForInput).
                     // Calling NSApp.activate here causes phantom events to be
-                    // observed by the CGEventTap-based event monitor and breaks
+                    // observed by the global NSEvent mouse-down monitor and breaks
                     // the click-then-move interaction on the notch.
                     if viewModel?.openReason != .notification {
                         notchWindow?.makeKey()

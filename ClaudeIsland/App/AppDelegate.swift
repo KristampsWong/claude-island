@@ -49,8 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // created the notch view model — its menu actions reach the view
         // model via `windowController` and would be no-ops otherwise. This
         // is the user's permanent escape hatch when the notch is unreachable
-        // for any reason (e.g. Accessibility not yet granted, so click
-        // re-posting from `NotchViewModel.repostClickAt` is silently dropped).
+        // for any reason (e.g. hover detection wedged).
         StatusItemController.shared.install()
 
         screenObserver = ScreenObserver { [weak self] in

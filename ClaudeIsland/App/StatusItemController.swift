@@ -11,10 +11,9 @@
 //  The notch is the only primary UI surface for the app: activation
 //  policy is `.accessory` (no Dock icon) and there is no other status
 //  item. Hover and click on the notch are driven by global NSEvent
-//  monitors plus `NotchViewModel.repostClickAt` (which uses
-//  `CGEvent.post` and therefore needs the Accessibility TCC grant).
-//  If the user declines Accessibility, or if the notch becomes
-//  unresponsive for any other reason, the only ways to recover are:
+//  monitors. If hover detection wedges, or the notch becomes
+//  unresponsive for any other reason, the only ways to recover from
+//  inside the app are:
 //
 //    1. The boot animation, which auto-opens the notch for ~1 second
 //       on launch and then auto-closes itself.
@@ -24,9 +23,9 @@
 //  Force-quitting via Activity Monitor is the only fallback without
 //  this status item.
 //
-//  This status item is the always-available rescue path: clicking it
-//  works regardless of TCC state, and its Quit menu item lets the
-//  user recover even if the notch is completely unresponsive.
+//  This status item is the always-available rescue path: it works
+//  regardless of notch state, and its Quit menu item lets the user
+//  recover even if the notch is completely unresponsive.
 //
 
 import AppKit
@@ -114,11 +113,9 @@ final class StatusItemController {
     @objc private func openSettings() {
         guard let viewModel = AppDelegate.shared?.windowController?.viewModel else { return }
         // Open the panel first (which may restore a saved chat session) and
-        // then force the content view to the settings menu so the user lands
-        // on the same panel that hosts the Accessibility row and Quit. This
-        // is the documented recovery path when the in-notch hamburger button
-        // is unreachable for any reason (denied Accessibility, hover
-        // detection wedged, etc.).
+        // then force the content view to the settings menu. This is the
+        // documented recovery path when the in-notch hamburger button is
+        // unreachable for any reason (e.g. hover detection wedged).
         viewModel.notchOpen(reason: .click)
         if viewModel.contentType != .menu {
             viewModel.toggleMenu()

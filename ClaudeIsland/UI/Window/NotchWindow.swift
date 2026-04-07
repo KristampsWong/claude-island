@@ -63,16 +63,4 @@ class NotchPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
-
-    // MARK: - Click-through for areas outside the panel content
-
-    override func sendEvent(_ event: NSEvent) {
-        // Mouse events that miss all subviews are handled by
-        // NotchViewModel.handleMouseDown via the global event monitor,
-        // which already reposts via NotchViewModel.repostClickAt.
-        // No need to repost here — doing so was the duplicate path that
-        // caused upstream issue #32 (cursor occasionally jumps when window
-        // retracts). See: KristampsWong/whisper-island#2.
-        super.sendEvent(event)
-    }
 }

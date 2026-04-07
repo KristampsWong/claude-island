@@ -14,18 +14,19 @@
 //  user has to add it via the +/- button), and even when it does the tap
 //  silently no-ops until the grant flips, leaving the user with a
 //  notch-only app they cannot reach. NSEvent global monitors for mouse
-//  events do not require any TCC grant on modern macOS, so the only
-//  remaining TCC dependency is Accessibility — needed solely by
-//  `NotchViewModel.repostClickAt`'s `CGEvent.post(tap: .cghidEventTap)`.
+//  events require no TCC grant on modern macOS, which (combined with
+//  removing the click-through repost in NotchViewModel) lets this fork
+//  run with **zero** TCC dependencies.
 //
 //  The terminal-lag bug that originally motivated the CGEventTap
 //  migration (KristampsWong/whisper-island#1) is fixed at its root by
 //  the SwiftUI diff cost reductions still in place in `SessionStore`
 //  (`publishState` throttle/debounce) and `ChatHistoryItem` (monotonic
 //  version counter for O(1) Equatable). Those layers stay; only the
-//  defensive event-delivery layer is being removed.
+//  defensive event-delivery layer is gone.
 //
-//  See: docs/superpowers/plans/2026-04-07-revert-cgevent-tap.md
+//  See: docs/superpowers/plans/2026-04-07-revert-cgevent-tap.md and
+//  docs/superpowers/plans/2026-04-07-remove-accessibility-tcc.md
 //
 
 import AppKit

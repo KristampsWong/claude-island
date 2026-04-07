@@ -61,8 +61,8 @@ class NotchViewModel: ObservableObject {
     /// the same runloop tick as the user's click. Without this, the status sink
     /// in `NotchWindowController` (which sets `ignoresMouseEvents` and resigns
     /// key) only fires on the next runloop tick, leaving a brief window where
-    /// the panel still owns focus and the CGEventTap-based event monitor can
-    /// observe phantom events from the in-flight focus transition.
+    /// the panel still owns focus and the global `NSEvent` mouse-down monitor
+    /// can observe a phantom click from the in-flight focus transition.
     var onClosePanel: (() -> Void)?
 
     // MARK: - Dependencies
@@ -211,13 +211,15 @@ class NotchViewModel: ObservableObject {
         switch status {
         case .opened:
             if geometry.isPointOutsidePanel(location, size: openedSize) {
-                // Synchronously release focus before changing status, so macOS
-                // doesn't fight over window activation while the click is still
-                // being processed by the CGEventTap pipeline.
+                // Clicking outside the panel only dismisses the panel — we
+                // intentionally do NOT synthesize a click-through to the
+                // window underneath. That matches macOS-native popover
+                // semantics (NSMenu, NSPopover, Spotlight, Notification
+                // Center all absorb their dismiss click) and avoids the
+                // footgun of accidentally triggering UI on a background
+                // window when the user only meant to close the notch.
                 onClosePanel?()
                 notchClose()
-                // Re-post the click so it reaches the window/app behind us
-                repostClickAt(location)
             } else if geometry.notchScreenRect.contains(location) {
                 // Clicking notch while opened - only close if NOT in chat mode
                 if !isInChatMode {
@@ -228,40 +230,6 @@ class NotchViewModel: ObservableObject {
         case .closed, .popping:
             if geometry.isPointInNotch(location) {
                 notchOpen(reason: .click)
-            }
-        }
-    }
-
-    /// Re-posts a mouse click at the given screen location so it reaches windows behind us
-    private func repostClickAt(_ location: CGPoint) {
-        // Small delay to let the window's ignoresMouseEvents update
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            // Convert to CGEvent coordinate system (screen coordinates with Y from top-left).
-            // Use the primary screen (NSScreen.screens.first), not NSScreen.main —
-            // NSScreen.main is the key window's screen, which is the wrong reference
-            // when the notch lives on a different display than the active window.
-            guard let primaryScreen = NSScreen.screens.first else { return }
-            let screenHeight = primaryScreen.frame.height
-            let cgPoint = CGPoint(x: location.x, y: screenHeight - location.y)
-
-            // Create and post mouse down event
-            if let mouseDown = CGEvent(
-                mouseEventSource: nil,
-                mouseType: .leftMouseDown,
-                mouseCursorPosition: cgPoint,
-                mouseButton: .left
-            ) {
-                mouseDown.post(tap: .cghidEventTap)
-            }
-
-            // Create and post mouse up event
-            if let mouseUp = CGEvent(
-                mouseEventSource: nil,
-                mouseType: .leftMouseUp,
-                mouseCursorPosition: cgPoint,
-                mouseButton: .left
-            ) {
-                mouseUp.post(tap: .cghidEventTap)
             }
         }
     }
