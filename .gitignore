@@ -36,6 +36,9 @@ Pods/
 # Sparkle signing keys (NEVER commit these!)
 .sparkle-keys/
 
+# Apple Developer Team ID for release builds (per-developer, not committed)
+.signing-team-id
+
 # Release artifacts
 releases/
 

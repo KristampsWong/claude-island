@@ -1,5 +1,11 @@
 #!/bin/bash
-# Create a release: notarize, create DMG, sign for Sparkle, upload to GitHub, update website
+# Create a release: notarize, create DMG, sign for Sparkle, generate appcast,
+# and upload everything (DMG + appcast.xml) to a GitHub Release.
+#
+# The Sparkle feed in Info.plist points at
+#   https://github.com/<owner>/claude-island/releases/latest/download/appcast.xml
+# so we just attach a fresh single-item appcast.xml to every release and
+# GitHub redirects /latest/ to it. No separate website needed.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,13 +18,10 @@ KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 # GitHub repository (owner/repo format)
 GITHUB_REPO="KristampsWong/claude-island"
 
-# Website repo for auto-updating appcast
-WEBSITE_DIR="${CLAUDE_ISLAND_WEBSITE:-$PROJECT_DIR/../ClaudeIsland-website}"
-WEBSITE_PUBLIC="$WEBSITE_DIR/public"
-
 APP_PATH="$EXPORT_PATH/Claude Island.app"
 APP_NAME="ClaudeIsland"
 KEYCHAIN_PROFILE="ClaudeIsland"
+MIN_SYSTEM_VERSION="15.6"
 
 echo "=== Creating Release ==="
 echo ""
@@ -30,7 +33,7 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
-# Get version from app
+# Get version from app (these were injected by build.sh from the git tag)
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
 
@@ -42,16 +45,15 @@ mkdir -p "$RELEASE_DIR"
 # ============================================
 # Step 1: Notarize the app
 # ============================================
-echo "=== Step 1: Notarizing ==="
+echo "=== Step 1: Notarizing app ==="
 
-# Check if keychain profile exists
 if ! xcrun notarytool history --keychain-profile "$KEYCHAIN_PROFILE" &>/dev/null; then
     echo ""
     echo "No keychain profile found. Set up credentials with:"
     echo ""
     echo "  xcrun notarytool store-credentials \"$KEYCHAIN_PROFILE\" \\"
     echo "      --apple-id \"your@email.com\" \\"
-    echo "      --team-id \"2DKS5U9LV4\" \\"
+    echo "      --team-id \"YOUR_TEAM_ID\" \\"
     echo "      --password \"xxxx-xxxx-xxxx-xxxx\""
     echo ""
     echo "Create an app-specific password at: https://appleid.apple.com"
@@ -64,7 +66,6 @@ if ! xcrun notarytool history --keychain-profile "$KEYCHAIN_PROFILE" &>/dev/null
     SKIP_NOTARIZATION=true
     echo "WARNING: Skipping notarization. Users will see Gatekeeper warnings!"
 else
-    # Create zip for notarization
     ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
     echo "Creating zip for notarization..."
     ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
@@ -90,13 +91,11 @@ echo "=== Step 2: Creating DMG ==="
 
 DMG_PATH="$RELEASE_DIR/$APP_NAME-$VERSION.dmg"
 
-# Remove existing DMG if present
 if [ -f "$DMG_PATH" ]; then
     echo "Removing existing DMG..."
     rm -f "$DMG_PATH"
 fi
 
-# Check if create-dmg is available (prettier DMG)
 if command -v create-dmg &> /dev/null; then
     echo "Using create-dmg for prettier output..."
     create-dmg \
@@ -135,13 +134,11 @@ if [ -z "$SKIP_NOTARIZATION" ]; then
 fi
 
 # ============================================
-# Step 4: Sign for Sparkle and generate appcast
+# Step 4: Sign DMG for Sparkle
 # ============================================
 echo "=== Step 4: Signing for Sparkle ==="
 
-# Find Sparkle tools
 SPARKLE_SIGN=""
-GENERATE_APPCAST=""
 
 POSSIBLE_PATHS=(
     "$HOME/Library/Developer/Xcode/DerivedData/ClaudeIsland-*/SourcePackages/artifacts/sparkle/Sparkle/bin"
@@ -151,156 +148,128 @@ for path_pattern in "${POSSIBLE_PATHS[@]}"; do
     for path in $path_pattern; do
         if [ -x "$path/sign_update" ]; then
             SPARKLE_SIGN="$path/sign_update"
-            GENERATE_APPCAST="$path/generate_appcast"
             break 2
         fi
     done
 done
 
 if [ -z "$SPARKLE_SIGN" ]; then
-    echo "WARNING: Could not find Sparkle tools."
-    echo "Build the project in Xcode first to download Sparkle package."
-    echo ""
-    echo "Skipping Sparkle signing. You'll need to manually:"
-    echo "1. Sign the DMG with sign_update"
-    echo "2. Generate appcast with generate_appcast"
-else
-    # Check for private key
-    if [ ! -f "$KEYS_DIR/eddsa_private_key" ]; then
-        echo "WARNING: No private key found at $KEYS_DIR/eddsa_private_key"
-        echo "Run ./scripts/generate-keys.sh first"
-        echo ""
-        echo "Skipping Sparkle signing."
-    else
-        # Generate signature
-        echo "Signing DMG for Sparkle..."
-        SIGNATURE=$("$SPARKLE_SIGN" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$DMG_PATH")
-
-        echo ""
-        echo "Sparkle signature:"
-        echo "$SIGNATURE"
-        echo ""
-
-        # Generate/update appcast
-        echo "Generating appcast..."
-        APPCAST_DIR="$RELEASE_DIR/appcast"
-        mkdir -p "$APPCAST_DIR"
-
-        # Copy DMG to appcast directory
-        cp "$DMG_PATH" "$APPCAST_DIR/"
-
-        # Generate appcast.xml
-        "$GENERATE_APPCAST" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$APPCAST_DIR"
-
-        echo "Appcast generated at: $APPCAST_DIR/appcast.xml"
-    fi
+    echo "ERROR: Could not find Sparkle's sign_update tool."
+    echo "Build the project in Xcode first to download the Sparkle SPM package."
+    exit 1
 fi
 
+if [ ! -f "$KEYS_DIR/eddsa_private_key" ]; then
+    echo "ERROR: No Sparkle private key at $KEYS_DIR/eddsa_private_key"
+    echo "Run ./scripts/generate-keys.sh first."
+    exit 1
+fi
+
+echo "Signing DMG with Sparkle EdDSA key..."
+# sign_update prints something like:
+#   sparkle:edSignature="..." length="12345678"
+SIGN_OUTPUT=$("$SPARKLE_SIGN" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$DMG_PATH")
+
+# Extract just the signature value
+ED_SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+DMG_LENGTH=$(echo "$SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+
+# Fall back to stat if sign_update didn't print length (older versions)
+if [ -z "$DMG_LENGTH" ]; then
+    DMG_LENGTH=$(stat -f%z "$DMG_PATH")
+fi
+
+if [ -z "$ED_SIGNATURE" ]; then
+    echo "ERROR: Could not parse signature from sign_update output:"
+    echo "$SIGN_OUTPUT"
+    exit 1
+fi
+
+echo "  Signature: $ED_SIGNATURE"
+echo "  Length:    $DMG_LENGTH bytes"
 echo ""
 
 # ============================================
-# Step 5: Create GitHub Release
+# Step 5: Generate single-item appcast.xml
 # ============================================
-echo "=== Step 5: Creating GitHub Release ==="
+echo "=== Step 5: Generating appcast.xml ==="
+
+APPCAST_PATH="$RELEASE_DIR/appcast.xml"
+DMG_FILENAME="$APP_NAME-$VERSION.dmg"
+DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$DMG_FILENAME"
+PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
+
+cat > "$APPCAST_PATH" << EOF
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+    <channel>
+        <title>Claude Island</title>
+        <link>https://github.com/$GITHUB_REPO</link>
+        <description>Most recent changes for Claude Island.</description>
+        <language>en</language>
+        <item>
+            <title>Version $VERSION</title>
+            <link>https://github.com/$GITHUB_REPO/releases/tag/v$VERSION</link>
+            <sparkle:version>$BUILD</sparkle:version>
+            <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>$MIN_SYSTEM_VERSION</sparkle:minimumSystemVersion>
+            <pubDate>$PUB_DATE</pubDate>
+            <enclosure
+                url="$DOWNLOAD_URL"
+                length="$DMG_LENGTH"
+                type="application/octet-stream"
+                sparkle:edSignature="$ED_SIGNATURE" />
+        </item>
+    </channel>
+</rss>
+EOF
+
+echo "Appcast written to: $APPCAST_PATH"
+echo ""
+
+# ============================================
+# Step 6: Create GitHub Release
+# ============================================
+echo "=== Step 6: Creating GitHub Release ==="
 
 if ! command -v gh &> /dev/null; then
-    echo "WARNING: gh CLI not found. Install with: brew install gh"
-    echo "Skipping GitHub release."
+    echo "ERROR: gh CLI not found. Install with: brew install gh"
+    exit 1
+fi
+
+if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
+    echo "Release v$VERSION already exists. Updating assets..."
+    gh release upload "v$VERSION" "$DMG_PATH" "$APPCAST_PATH" \
+        --repo "$GITHUB_REPO" --clobber
 else
-    # Check if release already exists
-    if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
-        echo "Release v$VERSION already exists. Updating..."
-        gh release upload "v$VERSION" "$DMG_PATH" --repo "$GITHUB_REPO" --clobber
-    else
-        echo "Creating release v$VERSION..."
-        gh release create "v$VERSION" "$DMG_PATH" \
-            --repo "$GITHUB_REPO" \
-            --title "Claude Island v$VERSION" \
-            --notes "## Claude Island v$VERSION
+    echo "Creating release v$VERSION..."
+    gh release create "v$VERSION" "$DMG_PATH" "$APPCAST_PATH" \
+        --repo "$GITHUB_REPO" \
+        --title "Claude Island v$VERSION" \
+        --notes "## Claude Island v$VERSION
 
 ### Installation
-1. Download \`$APP_NAME-$VERSION.dmg\`
+1. Download \`$DMG_FILENAME\`
 2. Open the DMG and drag Claude Island to Applications
 3. Launch Claude Island from Applications
 
 ### Auto-updates
 After installation, Claude Island will automatically check for updates."
-    fi
-
-    GITHUB_DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$APP_NAME-$VERSION.dmg"
-    echo "GitHub release created: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
-    echo "Download URL: $GITHUB_DOWNLOAD_URL"
 fi
 
 echo ""
-
-# ============================================
-# Step 6: Update website appcast and deploy
-# ============================================
-echo "=== Step 6: Updating Website ==="
-
-if [ -d "$WEBSITE_PUBLIC" ] && [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
-    # Copy appcast to website
-    cp "$RELEASE_DIR/appcast/appcast.xml" "$WEBSITE_PUBLIC/appcast.xml"
-
-    # Update the download URL in appcast to point to GitHub releases
-    if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-        sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$WEBSITE_PUBLIC/appcast.xml"
-        echo "Updated appcast.xml with GitHub download URL"
-    fi
-
-    # Update src/config.ts with latest version and download URL
-    CONFIG_FILE="$WEBSITE_DIR/src/config.ts"
-    if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-        cat > "$CONFIG_FILE" << EOF
-// Auto-updated by create-release.sh
-export const LATEST_VERSION = "$VERSION";
-export const DOWNLOAD_URL = "$GITHUB_DOWNLOAD_URL";
-EOF
-        echo "Updated src/config.ts with version $VERSION"
-    fi
-
-    # Commit and push website changes
-    cd "$WEBSITE_DIR"
-    if [ -d ".git" ]; then
-        git add public/appcast.xml src/config.ts
-        if ! git diff --cached --quiet; then
-            git commit -m "Update appcast for v$VERSION"
-            echo "Committed appcast update"
-
-            read -p "Push website changes to deploy? (Y/n) " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                git push
-                echo "Website deployed!"
-            else
-                echo "Changes committed but not pushed. Run 'git push' in $WEBSITE_DIR to deploy."
-            fi
-        else
-            echo "No changes to commit"
-        fi
-    else
-        echo "Copied appcast.xml to $WEBSITE_PUBLIC/"
-        echo "Note: Website directory is not a git repo"
-    fi
-    cd "$PROJECT_DIR"
-else
-    echo "Website directory not found or appcast not generated"
-    echo "Skipping website update."
-fi
-
+echo "GitHub release: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
 echo ""
 
+# ============================================
+# Done
+# ============================================
 echo "=== Release Complete ==="
 echo ""
-echo "Files created:"
-echo "  - DMG: $DMG_PATH"
-if [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
-    echo "  - Appcast: $RELEASE_DIR/appcast/appcast.xml"
-fi
-if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-    echo "  - GitHub: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
-fi
-if [ -f "$WEBSITE_PUBLIC/appcast.xml" ]; then
-    echo "  - Website: $WEBSITE_PUBLIC/appcast.xml"
-fi
+echo "Artifacts:"
+echo "  - DMG:      $DMG_PATH"
+echo "  - Appcast:  $APPCAST_PATH"
+echo "  - GitHub:   https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
+echo ""
+echo "Sparkle feed URL (already configured in Info.plist):"
+echo "  https://github.com/$GITHUB_REPO/releases/latest/download/appcast.xml"

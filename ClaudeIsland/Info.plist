@@ -18,10 +18,14 @@
     <string>Copyright 2025. All rights reserved.</string>
 
     <!-- Sparkle Update Configuration -->
+    <!-- Appcast is published as a release asset on every GitHub Release.
+         The /releases/latest/download/ URL always serves the most recent version. -->
     <key>SUFeedURL</key>
-    <string>https://claudeisland.com/appcast.xml</string>
+    <string>https://github.com/KristampsWong/claude-island/releases/latest/download/appcast.xml</string>
+    <!-- Public EdDSA key for Sparkle update verification.
+         The matching private key lives at .sparkle-keys/eddsa_private_key (gitignored). -->
     <key>SUPublicEDKey</key>
-    <string>w5NwH5KRfE7LfeZ09J8lWx3UQrWTqUbfH4HHBa1OPRk=</string>
+    <string>vaClmPV41bWRcsR7S3WLjAh/H/jGt7XJb9uwWahmvsA=</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>
