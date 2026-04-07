@@ -167,6 +167,14 @@ struct ChatView: View {
                 }
             }
         }
+        .onChange(of: isInputFocused) { _, focused in
+            // Activate the app when the text field gains focus so keyboard
+            // input works. NotchWindowController defers NSApp.activate to this
+            // moment instead of calling it on every notch open.
+            if focused {
+                AppDelegate.shared?.windowController?.activateForInput()
+            }
+        }
         .onAppear {
             // Auto-focus input when chat opens and tmux messaging is available
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

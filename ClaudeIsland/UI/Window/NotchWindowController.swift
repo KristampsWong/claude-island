@@ -13,6 +13,9 @@ class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
+    /// The app that was frontmost before we opened the notch, so we can restore
+    /// it on close. Held weakly so a quit/crash of the previous app won't pin it.
+    private weak var previousApp: NSRunningApplication?
 
     init(screen: NSScreen) {
         self.screen = screen
@@ -61,24 +64,54 @@ class NotchWindowController: NSWindowController {
 
         notchWindow.setFrame(windowFrame, display: true)
 
+        // Synchronous close callback — called by NotchViewModel.handleMouseDown
+        // BEFORE status changes, so focus is released on the same runloop tick
+        // as the user's click. The status sink below also resets these on close,
+        // but it runs async (next runloop tick) and that gap is enough for the
+        // CGEventTap to observe phantom events from the in-flight focus change.
+        viewModel.onClosePanel = { [weak self, weak notchWindow] in
+            notchWindow?.ignoresMouseEvents = true
+            notchWindow?.resignKey()
+            if let prev = self?.previousApp {
+                prev.activate()
+                self?.previousApp = nil
+            }
+        }
+
         // Dynamically toggle mouse event handling based on notch state:
         // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)
         // - Opened: ignoresMouseEvents = false (buttons inside panel work)
         viewModel.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow, weak viewModel] status in
+            .sink { [weak self, weak notchWindow, weak viewModel] status in
                 switch status {
                 case .opened:
+                    // Remember which app had focus before we (might) steal it,
+                    // so we can hand focus back when the notch closes.
+                    let frontmost = NSWorkspace.shared.frontmostApplication
+                    if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
+                        self?.previousApp = frontmost
+                    }
                     // Accept mouse events when opened so buttons work
                     notchWindow?.ignoresMouseEvents = false
-                    // Don't steal focus when opened by notification (task finished)
+                    // Don't steal app-level focus on open — just make the panel key
+                    // so buttons work. NSApp.activate is deferred until the user
+                    // actually interacts with a text field (see activateForInput).
+                    // Calling NSApp.activate here causes phantom events to be
+                    // observed by the CGEventTap-based event monitor and breaks
+                    // the click-then-move interaction on the notch.
                     if viewModel?.openReason != .notification {
-                        NSApp.activate(ignoringOtherApps: false)
                         notchWindow?.makeKey()
                     }
                 case .closed, .popping:
                     // Ignore mouse events when closed so clicks pass through
                     notchWindow?.ignoresMouseEvents = true
+                    notchWindow?.resignKey()
+                    // Re-activate the app that was frontmost before we opened
+                    if let prev = self?.previousApp {
+                        prev.activate()
+                        self?.previousApp = nil
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -90,6 +123,19 @@ class NotchWindowController: NSWindowController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.viewModel.performBootAnimation()
         }
+    }
+
+    /// Activate the app so keyboard input works. Called from ChatView when its
+    /// text field gains focus — we defer NSApp.activate to this moment so the
+    /// notch can be opened (and dismissed) without ever stealing app-level focus
+    /// for the common case of just clicking a button.
+    func activateForInput() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = frontmost
+        }
+        NSApp.activate(ignoringOtherApps: false)
+        window?.makeKey()
     }
 
     required init?(coder: NSCoder) {

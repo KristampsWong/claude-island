@@ -54,6 +54,17 @@ class NotchViewModel: ObservableObject {
     /// estimate for that single first frame.
     @Published var measuredMenuContentHeight: CGFloat = 0
 
+    // MARK: - Callbacks
+
+    /// Called synchronously by `handleMouseDown` immediately before `notchClose()`
+    /// runs, so the controller can release focus / restore mouse-passthrough on
+    /// the same runloop tick as the user's click. Without this, the status sink
+    /// in `NotchWindowController` (which sets `ignoresMouseEvents` and resigns
+    /// key) only fires on the next runloop tick, leaving a brief window where
+    /// the panel still owns focus and the CGEventTap-based event monitor can
+    /// observe phantom events from the in-flight focus transition.
+    var onClosePanel: (() -> Void)?
+
     // MARK: - Dependencies
 
     private let screenSelector = ScreenSelector.shared
@@ -200,12 +211,17 @@ class NotchViewModel: ObservableObject {
         switch status {
         case .opened:
             if geometry.isPointOutsidePanel(location, size: openedSize) {
+                // Synchronously release focus before changing status, so macOS
+                // doesn't fight over window activation while the click is still
+                // being processed by the CGEventTap pipeline.
+                onClosePanel?()
                 notchClose()
                 // Re-post the click so it reaches the window/app behind us
                 repostClickAt(location)
             } else if geometry.notchScreenRect.contains(location) {
                 // Clicking notch while opened - only close if NOT in chat mode
                 if !isInChatMode {
+                    onClosePanel?()
                     notchClose()
                 }
             }
@@ -220,9 +236,12 @@ class NotchViewModel: ObservableObject {
     private func repostClickAt(_ location: CGPoint) {
         // Small delay to let the window's ignoresMouseEvents update
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            // Convert to CGEvent coordinate system (screen coordinates with Y from top-left)
-            guard let screen = NSScreen.main else { return }
-            let screenHeight = screen.frame.height
+            // Convert to CGEvent coordinate system (screen coordinates with Y from top-left).
+            // Use the primary screen (NSScreen.screens.first), not NSScreen.main —
+            // NSScreen.main is the key window's screen, which is the wrong reference
+            // when the notch lives on a different display than the active window.
+            guard let primaryScreen = NSScreen.screens.first else { return }
+            let screenHeight = primaryScreen.frame.height
             let cgPoint = CGPoint(x: location.x, y: screenHeight - location.y)
 
             // Create and post mouse down event
