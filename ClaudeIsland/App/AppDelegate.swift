@@ -94,7 +94,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         Mixpanel.mainInstance().flush()
         updateCheckTimer?.invalidate()
+        updateCheckTimer = nil
         screenObserver = nil
+
+        // Release background resources that would otherwise keep dispatch
+        // sources / file descriptors / global NSEvent monitors alive and
+        // prevent the process from actually exiting after Quit.
+        // See: KristampsWong/whisper-island#3 (inherited from
+        // farouqaldori/claude-island#20).
+        EventMonitors.shared.stop()
+        HookSocketServer.shared.stop()
+        InterruptWatcherManager.shared.stopAll()
+        AgentFileWatcherManager.shared.stopAll()
+
+        // Final safety net: if anything still holds the run loop alive
+        // after cleanup, force-exit shortly after so users never have to
+        // force-kill via Activity Monitor.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            exit(0)
+        }
     }
 
     private func getOrCreateDistinctId() -> String {

@@ -44,4 +44,16 @@ class EventMonitors {
         mouseDownMonitor?.stop()
         mouseDraggedMonitor?.stop()
     }
+
+    /// Stop all event monitors. Singletons never `deinit`, so termination
+    /// must call this explicitly to release the global / local NSEvent
+    /// monitors that would otherwise keep the run loop alive after Quit.
+    func stop() {
+        mouseMoveMonitor?.stop()
+        mouseMoveMonitor = nil
+        mouseDownMonitor?.stop()
+        mouseDownMonitor = nil
+        mouseDraggedMonitor?.stop()
+        mouseDraggedMonitor = nil
+    }
 }

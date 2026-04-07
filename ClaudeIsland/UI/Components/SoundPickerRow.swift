@@ -79,8 +79,16 @@ struct SoundPickerRow: View {
                         }
                     }
                 }
-                .frame(maxHeight: CGFloat(min(NotificationSound.allCases.count, 6)) * 32)
-                .padding(.leading, 28)
+                // RIGID size, not `maxHeight`. ScrollView is intrinsically flexible
+                // and `.frame(maxHeight:)` only caps its upper bound, so under any
+                // parent height pressure it will collapse toward 0. That made the
+                // picker silently fail to open whenever the surrounding panel hadn't
+                // already grown to make room. Using `.frame(height:)` forces the
+                // ScrollView to always ask for exactly the height it needs, which
+                // lets `NotchMenuView`'s GeometryReader observe the real expanded
+                // height and grow `openedSize` to match.
+                .frame(height: CGFloat(min(NotificationSound.allCases.count, 6)) * 32)
+                .padding(.leading, 2)
                 .padding(.top, 4)
             }
         }
@@ -124,6 +132,11 @@ private struct SoundOptionRowInline: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
+            // Make the full row rectangle hit-testable. Without this, SwiftUI's
+            // Button only hit-tests opaque content (Text/Circle/Image), so the
+            // Spacer gap and the empty trailing area where the checkmark would
+            // be don't register hover, and `Color.clear` backgrounds don't help.
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)

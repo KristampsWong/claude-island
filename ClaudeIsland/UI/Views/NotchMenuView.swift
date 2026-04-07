@@ -11,6 +11,21 @@ import SwiftUI
 import ServiceManagement
 import Sparkle
 
+// MARK: - Preference Key
+
+/// Carries the live-measured intrinsic height of `NotchMenuView`'s body up to
+/// `NotchViewModel.measuredMenuContentHeight`. This is what lets the panel
+/// (and the AppKit hit-test rect derived from it) track the actual rendered
+/// menu without anybody having to count rows by hand.
+private struct MenuContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // The menu has a single source of this preference; `max` is the safe
+        // reducer in case multiple ever exist.
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - NotchMenuView
 
 struct NotchMenuView: View {
@@ -108,7 +123,35 @@ struct NotchMenuView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Stretch horizontally only — DO NOT use maxHeight: .infinity here.
+        // The parent panel proposes a height equal to `openedSize.height`, so
+        // a maxHeight of .infinity would inflate the menu to fill that whole
+        // proposal, leaving an empty gap below the last row whenever
+        // `openedSize.height` is larger than the intrinsic content.
+        .frame(maxWidth: .infinity, alignment: .top)
+        // Measure the menu's actual rendered height and publish it via a
+        // PreferenceKey. `NotchViewModel.openedSize` reads this back to size
+        // the panel — and therefore the AppKit hit-test rect — to whatever the
+        // menu actually needs right now (rows added/removed, pickers expanded
+        // or collapsed, accessibility text sizes, …). No hardcoded constants.
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(
+                        key: MenuContentHeightKey.self,
+                        value: proxy.size.height
+                    )
+            }
+        )
+        .onPreferenceChange(MenuContentHeightKey.self) { height in
+            // Defer to the next runloop tick so we never mutate observable
+            // state inside a view-update pass.
+            DispatchQueue.main.async {
+                if viewModel.measuredMenuContentHeight != height {
+                    viewModel.measuredMenuContentHeight = height
+                }
+            }
+        }
         .onAppear {
             refreshStates()
         }

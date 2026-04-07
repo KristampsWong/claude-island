@@ -46,6 +46,14 @@ class NotchViewModel: ObservableObject {
     @Published var contentType: NotchContentType = .instances
     @Published var isHovering: Bool = false
 
+    /// Live-measured intrinsic height of the menu's body (rows + dividers + its own
+    /// padding), reported by `NotchMenuView` via a PreferenceKey on every layout
+    /// pass. Drives `openedSize` for the menu so the panel — and the hit-test rect
+    /// derived from it — always tracks the actual rendered content. 0 until the
+    /// menu has been laid out at least once; `openedSize` falls back to a sensible
+    /// estimate for that single first frame.
+    @Published var measuredMenuContentHeight: CGFloat = 0
+
     // MARK: - Dependencies
 
     private let screenSelector = ScreenSelector.shared
@@ -71,10 +79,24 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // Compact size for settings menu
+            // Menu panel sizes itself to its actual rendered content. The body
+            // height is measured live by `NotchMenuView` via a PreferenceKey
+            // (see `measuredMenuContentHeight`) so that adding rows, expanding
+            // pickers, or changing fonts all just work — no constants to tune,
+            // and no risk of the hit-test rect drifting from the visible panel.
+            //
+            // For the very first frame (before any layout pass has reported a
+            // measurement) we use a fallback that's a reasonable over-estimate
+            // for the menu in its collapsed state. The next layout pass will
+            // correct it within one animation frame.
+            let header = max(24, deviceNotchRect.height)
+            let bottomPanelPadding: CGFloat = 12
+            let menuContent = measuredMenuContentHeight > 0
+                ? measuredMenuContentHeight
+                : 440 // collapsed-menu fallback for the first frame
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 420 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
+                height: header + menuContent + bottomPanelPadding
             )
         case .instances:
             return CGSize(
