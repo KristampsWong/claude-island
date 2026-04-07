@@ -35,8 +35,8 @@ class EventMonitors {
         let moveMask: CGEventMask = (1 << CGEventType.mouseMoved.rawValue)
             | (1 << CGEventType.leftMouseDragged.rawValue)
 
-        mouseMoveMonitor = EventMonitor(mask: moveMask) { [weak self] event in
-            self?.throttledSendMouseLocation(event)
+        mouseMoveMonitor = EventMonitor(mask: moveMask) { [weak self] _ in
+            self?.throttledSendMouseLocation()
         }
         mouseMoveMonitor?.start()
 
@@ -49,20 +49,24 @@ class EventMonitors {
         mouseDownMonitor?.start()
     }
 
-    /// Source-level throttle: skip if called within throttleInterval of last send
-    private func throttledSendMouseLocation(_ event: CGEvent) {
+    /// Source-level throttle: skip if called within throttleInterval of last send.
+    /// The CGEvent from the tap is used purely as a "mouse moved" trigger —
+    /// its .location is intentionally ignored. We previously converted it via
+    /// `NSScreen.main!.frame.height - cgPoint.y`, but `NSScreen.main` is the
+    /// key window's screen (not the primary screen), so on multi-monitor setups
+    /// where the active window lives on a screen with a different height than
+    /// the primary, the converted Y was wrong by `(mainHeight - primaryHeight)`
+    /// and notch hover detection silently broke. `NSEvent.mouseLocation` already
+    /// returns AppKit global coordinates anchored to the primary screen, and is
+    /// safe to call from this background tap thread (it's a stateless getter
+    /// that doesn't touch any NSWindow state).
+    private func throttledSendMouseLocation() {
         guard !isPaused else { return }
         let now = CFAbsoluteTimeGetCurrent()
         guard now - lastMouseLocationTime >= throttleInterval else { return }
         lastMouseLocationTime = now
 
-        // CGEvent location is in screen coords (top-left origin).
-        // Convert to NSScreen coords (bottom-left origin) for AppKit compatibility.
-        let cgPoint = event.location
-        if let screenHeight = NSScreen.main?.frame.height {
-            let nsPoint = CGPoint(x: cgPoint.x, y: screenHeight - cgPoint.y)
-            mouseLocation.send(nsPoint)
-        }
+        mouseLocation.send(NSEvent.mouseLocation)
     }
 
     // MARK: - Pause / Resume
