@@ -39,7 +39,8 @@ enum ToolEventProcessor {
                     structuredResult: nil,
                     subagentTools: []
                 )),
-                timestamp: Date()
+                timestamp: Date(),
+                version: session.nextVersion()
             )
             session.chatItems.append(placeholderItem)
             logger.debug("Created placeholder tool entry for \(toolUseId.prefix(16), privacy: .public)")
@@ -143,7 +144,8 @@ enum ToolEventProcessor {
                 session.chatItems[i] = ChatHistoryItem(
                     id: toolId,
                     type: .toolCall(tool),
-                    timestamp: session.chatItems[i].timestamp
+                    timestamp: session.chatItems[i].timestamp,
+                    version: session.nextVersion()
                 )
                 return
             }
@@ -175,7 +177,8 @@ enum ToolEventProcessor {
                 session.chatItems[i] = ChatHistoryItem(
                     id: session.chatItems[i].id,
                     type: .toolCall(tool),
-                    timestamp: session.chatItems[i].timestamp
+                    timestamp: session.chatItems[i].timestamp,
+                    version: session.nextVersion()
                 )
             }
         }
@@ -198,7 +201,8 @@ enum ToolEventProcessor {
                 session.chatItems[i] = ChatHistoryItem(
                     id: taskToolId,
                     type: .toolCall(tool),
-                    timestamp: session.chatItems[i].timestamp
+                    timestamp: session.chatItems[i].timestamp,
+                    version: session.nextVersion()
                 )
                 logger.debug("Attached \(subagentTools.count) subagent tools to Task \(taskToolId.prefix(12), privacy: .public)")
                 break

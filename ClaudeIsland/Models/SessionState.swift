@@ -53,6 +53,17 @@ struct SessionState: Equatable, Identifiable, Sendable {
     /// This removes pre-/clear items that no longer exist in the JSONL
     var needsClearReconciliation: Bool
 
+    // MARK: - Version Counter
+
+    /// Monotonic counter for ChatHistoryItem version tracking
+    var nextItemVersion: Int = 0
+
+    mutating func nextVersion() -> Int {
+        let v = nextItemVersion
+        nextItemVersion += 1
+        return v
+    }
+
     // MARK: - Timestamps
 
     var lastActivity: Date

@@ -219,7 +219,8 @@ actor SessionStore {
                             structuredResult: nil,
                             subagentTools: []
                         )),
-                        timestamp: Date()
+                        timestamp: Date(),
+                        version: session.nextVersion()
                     )
                     session.chatItems.append(placeholderItem)
                     Self.logger.debug("Created placeholder tool entry for \(toolUseId.prefix(16), privacy: .public)")
@@ -239,7 +240,8 @@ actor SessionStore {
                         session.chatItems[i] = ChatHistoryItem(
                             id: toolUseId,
                             type: .toolCall(tool),
-                            timestamp: session.chatItems[i].timestamp
+                            timestamp: session.chatItems[i].timestamp,
+                            version: session.nextVersion()
                         )
                         break
                     }
@@ -378,7 +380,8 @@ actor SessionStore {
                 session.chatItems[i] = ChatHistoryItem(
                     id: toolUseId,
                     type: .toolCall(tool),
-                    timestamp: session.chatItems[i].timestamp
+                    timestamp: session.chatItems[i].timestamp,
+                    version: session.nextVersion()
                 )
                 Self.logger.debug("Tool \(toolUseId.prefix(12), privacy: .public) completed with status: \(String(describing: result.status), privacy: .public)")
                 break
@@ -548,7 +551,8 @@ actor SessionStore {
                                         structuredResult: existingTool.structuredResult,
                                         subagentTools: existingTool.subagentTools
                                     )),
-                                    timestamp: message.timestamp
+                                    timestamp: message.timestamp,
+                                    version: session.nextVersion()
                                 )
                             }
                             continue
@@ -563,7 +567,8 @@ actor SessionStore {
                         completedTools: payload.completedToolIds,
                         toolResults: payload.toolResults,
                         structuredResults: payload.structuredResults,
-                        toolTracker: &session.toolTracker
+                        toolTracker: &session.toolTracker,
+                        version: session.nextVersion()
                     )
 
                     if let item = item {
@@ -589,7 +594,8 @@ actor SessionStore {
                                         structuredResult: existingTool.structuredResult,
                                         subagentTools: existingTool.subagentTools
                                     )),
-                                    timestamp: message.timestamp
+                                    timestamp: message.timestamp,
+                                    version: session.nextVersion()
                                 )
                             }
                             continue
@@ -604,7 +610,8 @@ actor SessionStore {
                         completedTools: payload.completedToolIds,
                         toolResults: payload.toolResults,
                         structuredResults: payload.structuredResults,
-                        toolTracker: &session.toolTracker
+                        toolTracker: &session.toolTracker,
+                        version: session.nextVersion()
                     )
 
                     if let item = item {
@@ -677,7 +684,8 @@ actor SessionStore {
             session.chatItems[i] = ChatHistoryItem(
                 id: taskToolId,
                 type: .toolCall(tool),
-                timestamp: session.chatItems[i].timestamp
+                timestamp: session.chatItems[i].timestamp,
+                version: session.nextVersion()
             )
 
             Self.logger.debug("Populated \(subagentToolInfos.count) subagent tools for Task \(taskToolId.prefix(12), privacy: .public) from agent \(taskResult.agentId.prefix(8), privacy: .public)")
@@ -718,7 +726,8 @@ actor SessionStore {
         completedTools: Set<String>,
         toolResults: [String: ConversationParser.ToolResult],
         structuredResults: [String: ToolResultData],
-        toolTracker: inout ToolTracker
+        toolTracker: inout ToolTracker,
+        version: Int
     ) -> ChatHistoryItem? {
         switch block {
         case .text(let text):
@@ -726,9 +735,9 @@ actor SessionStore {
             guard !existingIds.contains(itemId) else { return nil }
 
             if message.role == .user {
-                return ChatHistoryItem(id: itemId, type: .user(text), timestamp: message.timestamp)
+                return ChatHistoryItem(id: itemId, type: .user(text), timestamp: message.timestamp, version: version)
             } else {
-                return ChatHistoryItem(id: itemId, type: .assistant(text), timestamp: message.timestamp)
+                return ChatHistoryItem(id: itemId, type: .assistant(text), timestamp: message.timestamp, version: version)
             }
 
         case .toolUse(let tool):
@@ -759,18 +768,19 @@ actor SessionStore {
                     structuredResult: structuredResults[tool.id],
                     subagentTools: []
                 )),
-                timestamp: message.timestamp
+                timestamp: message.timestamp,
+                version: version
             )
 
         case .thinking(let text):
             let itemId = "\(message.id)-thinking-\(blockIndex)"
             guard !existingIds.contains(itemId) else { return nil }
-            return ChatHistoryItem(id: itemId, type: .thinking(text), timestamp: message.timestamp)
+            return ChatHistoryItem(id: itemId, type: .thinking(text), timestamp: message.timestamp, version: version)
 
         case .interrupted:
             let itemId = "\(message.id)-interrupted-\(blockIndex)"
             guard !existingIds.contains(itemId) else { return nil }
-            return ChatHistoryItem(id: itemId, type: .interrupted, timestamp: message.timestamp)
+            return ChatHistoryItem(id: itemId, type: .interrupted, timestamp: message.timestamp, version: version)
         }
     }
 
@@ -783,7 +793,8 @@ actor SessionStore {
                 session.chatItems[i] = ChatHistoryItem(
                     id: toolId,
                     type: .toolCall(tool),
-                    timestamp: session.chatItems[i].timestamp
+                    timestamp: session.chatItems[i].timestamp,
+                    version: session.nextVersion()
                 )
                 found = true
                 break
@@ -811,7 +822,8 @@ actor SessionStore {
                 session.chatItems[i] = ChatHistoryItem(
                     id: session.chatItems[i].id,
                     type: .toolCall(tool),
-                    timestamp: session.chatItems[i].timestamp
+                    timestamp: session.chatItems[i].timestamp,
+                    version: session.nextVersion()
                 )
             }
         }
@@ -901,7 +913,8 @@ actor SessionStore {
                     completedTools: completedTools,
                     toolResults: toolResults,
                     structuredResults: structuredResults,
-                    toolTracker: &session.toolTracker
+                    toolTracker: &session.toolTracker,
+                    version: session.nextVersion()
                 )
 
                 if let item = item {
@@ -962,7 +975,40 @@ actor SessionStore {
 
     // MARK: - State Publishing
 
+    /// Debounce interval for state publishing (200ms)
+    private let publishDebounceNs: UInt64 = 200_000_000
+    private var pendingPublish: Task<Void, Never>?
+    private var lastPublishTime: CFAbsoluteTime = 0
+
     private func publishState() {
+        let now = CFAbsoluteTimeGetCurrent()
+
+        // Leading edge: publish immediately if enough time has passed
+        if now - lastPublishTime >= 0.2 {
+            lastPublishTime = now
+            pendingPublish?.cancel()
+            pendingPublish = nil
+            doPublish()
+            return
+        }
+
+        // Trailing edge: schedule a deferred publish if not already pending
+        guard pendingPublish == nil else { return }
+        let debounceNs = publishDebounceNs
+        pendingPublish = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: debounceNs)
+            guard !Task.isCancelled else { return }
+            await self?.trailingPublish()
+        }
+    }
+
+    private func trailingPublish() {
+        lastPublishTime = CFAbsoluteTimeGetCurrent()
+        pendingPublish = nil
+        doPublish()
+    }
+
+    private func doPublish() {
         let sortedSessions = Array(sessions.values).sorted { $0.projectName < $1.projectName }
         sessionsSubject.send(sortedSessions)
     }

@@ -13,7 +13,7 @@ import SwiftUI
 /// Caches parsed markdown documents to avoid re-parsing
 private final class DocumentCache: @unchecked Sendable {
     static let shared = DocumentCache()
-    private var cache: [String: Document] = [:]
+    private var cache: [(key: String, value: Document)] = []
     private let lock = NSLock()
     private let maxSize = 100
 
@@ -21,15 +21,20 @@ private final class DocumentCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        if let cached = cache[text] {
-            return cached
+        // Move to end on hit (LRU)
+        if let index = cache.firstIndex(where: { $0.key == text }) {
+            let entry = cache.remove(at: index)
+            cache.append(entry)
+            return entry.value
         }
-        // Enable strikethrough and other extended syntax
+
         let doc = Document(parsing: text, options: [.parseBlockDirectives, .parseSymbolLinks])
+
+        // Evict oldest 25% when full
         if cache.count >= maxSize {
-            cache.removeAll()
+            cache.removeFirst(maxSize / 4)
         }
-        cache[text] = doc
+        cache.append((key: text, value: doc))
         return doc
     }
 }

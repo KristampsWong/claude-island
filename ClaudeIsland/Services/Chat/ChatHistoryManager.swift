@@ -106,9 +106,11 @@ struct ChatHistoryItem: Identifiable, Equatable, Sendable {
     let id: String
     let type: ChatHistoryItemType
     let timestamp: Date
+    /// Monotonic version — incremented on any mutation. Enables O(1) Equatable.
+    let version: Int
 
     static func == (lhs: ChatHistoryItem, rhs: ChatHistoryItem) -> Bool {
-        lhs.id == rhs.id && lhs.type == rhs.type
+        lhs.id == rhs.id && lhs.version == rhs.version
     }
 }
 
