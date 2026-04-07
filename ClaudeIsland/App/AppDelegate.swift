@@ -45,6 +45,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager = WindowManager()
         _ = windowManager?.setupNotchWindow()
 
+        // Install the menu-bar status item AFTER the window manager has
+        // created the notch view model — its menu actions reach the view
+        // model via `windowController` and would be no-ops otherwise. This
+        // is the user's permanent escape hatch when the CGEventTap-driven
+        // notch input pipeline is dead (e.g. Input Monitoring not yet granted).
+        StatusItemController.shared.install()
+
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()
         }
@@ -77,6 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         HookSocketServer.shared.stop()
         InterruptWatcherManager.shared.stopAll()
         AgentFileWatcherManager.shared.stopAll()
+        StatusItemController.shared.uninstall()
 
         // Final safety net: if anything still holds the run loop alive
         // after cleanup, force-exit shortly after so users never have to
