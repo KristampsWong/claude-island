@@ -40,6 +40,56 @@ BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/
 echo "Version: $VERSION (build $BUILD)"
 echo ""
 
+# ============================================
+# Step 0: Validate CHANGELOG entry
+# ============================================
+# Runs BEFORE notarization (Step 1) so a missing entry fails in seconds
+# rather than after a multi-minute notary round-trip. Uses exact-prefix
+# string matching (not a regex over $VERSION) because version strings
+# contain dots that would otherwise be treated as regex metacharacters.
+echo "=== Step 0: Validating CHANGELOG entry ==="
+
+CHANGELOG_PATH="$PROJECT_DIR/CHANGELOG.md"
+if [ ! -f "$CHANGELOG_PATH" ]; then
+    echo "ERROR: CHANGELOG.md not found at $CHANGELOG_PATH"
+    echo "Create it (see https://keepachangelog.com/en/1.1.0/) and add a"
+    echo "section for v$VERSION before re-running this script."
+    exit 1
+fi
+
+RELEASE_NOTES=$(awk -v hdr="## [$VERSION]" '
+    /^## \[/ {
+        if (in_section) exit
+        if (substr($0, 1, length(hdr)) == hdr) { in_section = 1; next }
+        next
+    }
+    in_section { lines[++n] = $0 }
+    END {
+        first = 1
+        while (first <= n && lines[first] ~ /^[[:space:]]*$/) first++
+        last = n
+        while (last >= first && lines[last] ~ /^[[:space:]]*$/) last--
+        for (i = first; i <= last; i++) print lines[i]
+    }
+' "$CHANGELOG_PATH")
+
+if [ -z "$RELEASE_NOTES" ]; then
+    echo "ERROR: No CHANGELOG.md entry found for version $VERSION."
+    echo ""
+    echo "Add a section to CHANGELOG.md (newest first), e.g.:"
+    echo ""
+    echo "## [$VERSION] - $(date +%Y-%m-%d)"
+    echo ""
+    echo "### Fixed"
+    echo "- ..."
+    echo ""
+    echo "Then re-run this script."
+    exit 1
+fi
+
+echo "Found CHANGELOG entry for v$VERSION."
+echo ""
+
 mkdir -p "$RELEASE_DIR"
 
 # ============================================
@@ -237,16 +287,11 @@ if ! command -v gh &> /dev/null; then
     exit 1
 fi
 
-if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
-    echo "Release v$VERSION already exists. Updating assets..."
-    gh release upload "v$VERSION" "$DMG_PATH" "$APPCAST_PATH" \
-        --repo "$GITHUB_REPO" --clobber
-else
-    echo "Creating release v$VERSION..."
-    gh release create "v$VERSION" "$DMG_PATH" "$APPCAST_PATH" \
-        --repo "$GITHUB_REPO" \
-        --title "Claude Island v$VERSION" \
-        --notes "## Claude Island v$VERSION
+# Compose the GitHub release page body from the CHANGELOG section captured
+# in Step 0 plus the unchanged Installation / Auto-updates boilerplate.
+RELEASE_BODY="## Claude Island v$VERSION
+
+$RELEASE_NOTES
 
 ### Installation
 1. Download \`$DMG_FILENAME\`
@@ -255,6 +300,19 @@ else
 
 ### Auto-updates
 After installation, Claude Island will automatically check for updates."
+
+if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
+    echo "Release v$VERSION already exists. Updating assets..."
+    gh release upload "v$VERSION" "$DMG_PATH" "$APPCAST_PATH" \
+        --repo "$GITHUB_REPO" --clobber
+    echo "Updating release notes from CHANGELOG.md..."
+    gh release edit "v$VERSION" --repo "$GITHUB_REPO" --notes "$RELEASE_BODY"
+else
+    echo "Creating release v$VERSION..."
+    gh release create "v$VERSION" "$DMG_PATH" "$APPCAST_PATH" \
+        --repo "$GITHUB_REPO" \
+        --title "Claude Island v$VERSION" \
+        --notes "$RELEASE_BODY"
 fi
 
 echo ""
