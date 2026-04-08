@@ -43,19 +43,20 @@ final class StatusItemController {
     /// Install the status item. Must be called on the main thread, after
     /// `WindowManager.setupNotchWindow()` has run, so that menu actions can
     /// reach the notch view model via `AppDelegate.shared?.windowController`.
+    @MainActor
     func install() {
         guard statusItem == nil else { return }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            // capsule.fill visually echoes the notch / island shape and is a
-            // template image so it adapts to light/dark menu bar automatically.
-            let image = NSImage(
-                systemSymbolName: "capsule.fill",
-                accessibilityDescription: "Claude Island"
-            )
-            image?.isTemplate = true
-            button.image = image
+            // Brand crab mascot — full color (not a template image), so it
+            // keeps its orange body + black eyes against both light and
+            // dark menu bars. Drawn from the same source as the notch
+            // header crab via `ClaudeCrabIcon.nsImage(...)`. 14pt height
+            // leaves comfortable padding inside the ~22pt status item.
+            let crab = ClaudeCrabIcon.nsImage(size: 14)
+            crab?.accessibilityDescription = "Claude Island"
+            button.image = crab
             button.toolTip = "Claude Island"
         }
 
@@ -67,6 +68,7 @@ final class StatusItemController {
             keyEquivalent: ""
         )
         openItem.target = self
+        openItem.image = ClaudeCrabIcon.nsImage(size: 13)
 
         let settingsItem = menu.addItem(
             withTitle: "Settings…",
@@ -78,11 +80,12 @@ final class StatusItemController {
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = menu.addItem(
-            withTitle: "Quit Claude Island",
+            withTitle: "Quit",
             action: #selector(quit),
             keyEquivalent: "q"
         )
         quitItem.target = self
+        quitItem.image = Self.menuIcon(systemSymbolName: "power")
 
         item.menu = menu
         statusItem = item
@@ -124,5 +127,18 @@ final class StatusItemController {
 
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
+    }
+
+    // MARK: - Helpers
+
+    /// Build a small template SF Symbol image sized for an NSMenuItem leading
+    /// icon. Template images pick up the menu's text color automatically so
+    /// they look right in light and dark menu bars.
+    private static func menuIcon(systemSymbolName name: String) -> NSImage? {
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = true
+        return image
     }
 }

@@ -22,8 +22,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - A persistent menu bar status item as an escape hatch for any case where the
-  notch overlay misbehaves — provides Quit, Open Settings, and a session
-  summary regardless of the overlay's state.
+  notch overlay misbehaves — Open Claude Island, Settings…, and Quit are
+  reachable from the system menu bar regardless of the overlay's state. The
+  icon is the brand crab mascot, drawn from a shared `ClaudeCrabIcon` so the
+  notch header and the menu bar status item render from one source.
 - Developer convenience scripts: `scripts/dev-run.sh` (one-shot Debug build +
   launch without DerivedData globbing) and `scripts/reset-tcc.sh` (resets only
   this app's macOS TCC grants for reproducing first-launch flows; leaves
