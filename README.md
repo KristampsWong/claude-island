@@ -59,6 +59,8 @@ Or just open `ClaudeIsland.xcodeproj` in Xcode and ⌘R.
 
 ## Releasing (maintainers)
 
+See [`CHANGELOG.md`](CHANGELOG.md) for the version history. `scripts/create-release.sh` reads the `## [<version>]` section for the current version out of `CHANGELOG.md` and uses it as the GitHub release body, so adding a new release means editing `CHANGELOG.md` first and then tagging.
+
 Releases are version-driven by git tags. Both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` are injected at build time from `git describe --tags` and `git rev-list --count HEAD` respectively, so `project.pbxproj` never has to be edited by hand.
 
 One-time setup:
