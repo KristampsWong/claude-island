@@ -67,7 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleScreenChange() {
-        _ = windowManager?.setupNotchWindow()
+        windowManager?.handleScreenChange()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

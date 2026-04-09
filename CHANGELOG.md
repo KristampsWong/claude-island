@@ -4,6 +4,24 @@ All notable changes to this fork are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-04-09
+
+### Fixed
+- Notch no longer "pops" with the boot animation on display unplug, power
+  cable plug/unplug, or wake from sleep. `WindowManager` now caches the notch
+  screen's identity, frame, and backing scale, and short-circuits
+  `didChangeScreenParametersNotification` when nothing notch-relevant has
+  changed. When a rebuild is genuinely required, the boot animation is
+  suppressed so the migration is silent. Fixes #3 (inherited from upstream
+  farouqaldori/claude-island#22).
+- Notification sound and notch alert no longer fire every time a `Task`
+  subagent finishes. The bundled `claude-island-state.py` hook script now
+  reports `processing` (not `waiting_for_input`) on `SubagentStop`, since the
+  main session continues working immediately after a subagent returns. The
+  alert sound now plays only on the real `Stop` event, when the main session
+  is actually waiting for the next user prompt. Fixes #4 (inherited from
+  upstream farouqaldori/claude-island#36).
+
 ## [1.0.1] - 2026-04-07
 
 ### Fixed
