@@ -84,6 +84,8 @@ enum SessionPhase: Sendable {
         // Idle transitions
         case (.idle, .processing):
             return true
+        case (.idle, .waitingForInput):
+            return true  // Stop can arrive after Notification(idle_prompt) set .idle
         case (.idle, .waitingForApproval):
             return true  // Direct permission request on idle session
         case (.idle, .compacting):

@@ -12,6 +12,8 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>CFBundleShortVersionString</key>
     <string>$(MARKETING_VERSION)</string>
+    <key>CommitHash</key>
+    <string>$(COMMIT_HASH)</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHumanReadableCopyright</key>

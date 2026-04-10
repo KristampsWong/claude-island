@@ -21,6 +21,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   alert sound now plays only on the real `Stop` event, when the main session
   is actually waiting for the next user prompt. Fixes #4 (inherited from
   upstream farouqaldori/claude-island#36).
+- Notification sound could silently fail to play when the `Notification
+  (idle_prompt)` hook arrived before the `Stop` hook. The session phase would
+  transition from `.processing` → `.idle` (via `idle_prompt`), and then the
+  `Stop` event's `.idle` → `.waitingForInput` transition was rejected by the
+  state machine as invalid. Added the missing `.idle → .waitingForInput`
+  transition so `Stop` can always complete regardless of hook arrival order.
+
+### Changed
+- The version label in the "Check for Updates" row now shows the short git
+  commit hash (e.g. `v1.0.2 (5334094)`) instead of the monotonic build
+  number. The build number (`CFBundleVersion`) is kept as-is for Sparkle
+  comparison; the commit hash is stored in a new `CommitHash` Info.plist key
+  and passed via the `COMMIT_HASH` build setting in both `build.sh` and
+  `dev-run.sh`.
 
 ## [1.0.1] - 2026-04-07
 

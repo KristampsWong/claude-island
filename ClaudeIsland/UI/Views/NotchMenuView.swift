@@ -175,8 +175,11 @@ struct UpdateRow: View {
 
     private var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "v\(version) (\(build))"
+        let commit = Bundle.main.infoDictionary?["CommitHash"] as? String ?? ""
+        if commit.isEmpty {
+            return "v\(version)"
+        }
+        return "v\(version) (\(commit))"
     }
 
     var body: some View {
