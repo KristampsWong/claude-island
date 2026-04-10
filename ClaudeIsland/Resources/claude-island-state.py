@@ -176,8 +176,10 @@ def main():
         state["status"] = "waiting_for_input"
 
     elif event == "SubagentStop":
-        # SubagentStop fires when a subagent completes - usually means back to waiting
-        state["status"] = "waiting_for_input"
+        # Subagent finished, but the main session continues processing its result.
+        # Do NOT report waiting_for_input here — only Stop should do that.
+        # See KristampsWong/claude-island#4.
+        state["status"] = "processing"
 
     elif event == "SessionStart":
         # New session starts waiting for user input

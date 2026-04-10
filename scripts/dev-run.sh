@@ -36,12 +36,14 @@ else
     DEV_VERSION="0.0.0-dev"
 fi
 DEV_BUILD=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+DEV_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "")
 
 echo "=== Building Claude Island (Debug) ==="
 echo "  Version: $DEV_VERSION (build $DEV_BUILD)"
 xcodebuild -scheme ClaudeIsland -configuration Debug \
     MARKETING_VERSION="$DEV_VERSION" \
     CURRENT_PROJECT_VERSION="$DEV_BUILD" \
+    COMMIT_HASH="$DEV_COMMIT" \
     build
 
 BUILT_PRODUCTS_DIR=$(xcodebuild -scheme ClaudeIsland -configuration Debug -showBuildSettings 2>/dev/null \

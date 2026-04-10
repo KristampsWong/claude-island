@@ -6,6 +6,7 @@
 #
 #   - MARKETING_VERSION       <- latest git tag (e.g. v1.0.0 -> 1.0.0)
 #   - CURRENT_PROJECT_VERSION <- total commit count (monotonically increasing)
+#   - COMMIT_HASH             <- short git commit hash (displayed in UI)
 #   - DEVELOPMENT_TEAM        <- $CLAUDE_ISLAND_TEAM_ID env var,
 #                                or contents of .signing-team-id (gitignored)
 #
@@ -51,6 +52,9 @@ fi
 # Build number: total commit count. Monotonically increases, satisfies Sparkle.
 BUILD=$(git rev-list --count HEAD)
 
+# Short commit hash for display in the UI (not used by Sparkle).
+COMMIT_HASH=$(git rev-parse --short HEAD)
+
 # ============================================
 # Resolve signing team ID
 # ============================================
@@ -74,6 +78,7 @@ echo "=== Building Claude Island ==="
 echo "  Tag:      $RAW_TAG"
 echo "  Version:  $VERSION"
 echo "  Build:    $BUILD"
+echo "  Commit:   $COMMIT_HASH"
 echo "  Team ID:  $TEAM_ID"
 echo ""
 
@@ -97,6 +102,7 @@ xcodebuild archive \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$VERSION" \
     CURRENT_PROJECT_VERSION="$BUILD" \
+    COMMIT_HASH="$COMMIT_HASH" \
     | xcpretty || xcodebuild archive \
     -scheme ClaudeIsland \
     -configuration Release \
@@ -106,7 +112,8 @@ xcodebuild archive \
     CODE_SIGN_STYLE=Automatic \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$VERSION" \
-    CURRENT_PROJECT_VERSION="$BUILD"
+    CURRENT_PROJECT_VERSION="$BUILD" \
+    COMMIT_HASH="$COMMIT_HASH"
 
 # ============================================
 # Export
@@ -143,6 +150,6 @@ xcodebuild -exportArchive \
 echo ""
 echo "=== Build Complete ==="
 echo "  App:     $EXPORT_PATH/Claude Island.app"
-echo "  Version: $VERSION (build $BUILD)"
+echo "  Version: $VERSION ($COMMIT_HASH)"
 echo ""
 echo "Next: ./scripts/create-release.sh"

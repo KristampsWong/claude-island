@@ -12,13 +12,15 @@ import SwiftUI
 class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private let screen: NSScreen
+    private let playBootAnimation: Bool
     private var cancellables = Set<AnyCancellable>()
     /// The app that was frontmost before we opened the notch, so we can restore
     /// it on close. Held weakly so a quit/crash of the previous app won't pin it.
     private weak var previousApp: NSRunningApplication?
 
-    init(screen: NSScreen) {
+    init(screen: NSScreen, playBootAnimation: Bool = true) {
         self.screen = screen
+        self.playBootAnimation = playBootAnimation
 
         let screenFrame = screen.frame
         let notchSize = screen.notchSize
@@ -120,9 +122,14 @@ class NotchWindowController: NSWindowController {
         // Start with ignoring mouse events (closed state)
         notchWindow.ignoresMouseEvents = true
 
-        // Perform boot animation after a brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.viewModel.performBootAnimation()
+        // Perform boot animation after a brief delay. Suppressed when the
+        // window is being rebuilt in response to a screen reconfiguration —
+        // see KristampsWong/claude-island#3 (the notch should not "pop" on
+        // wake-from-sleep, display unplug, or power changes).
+        if playBootAnimation {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.viewModel.performBootAnimation()
+            }
         }
     }
 
