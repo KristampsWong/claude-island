@@ -46,6 +46,14 @@ class NotchViewModel: ObservableObject {
     @Published var contentType: NotchContentType = .instances
     @Published var isHovering: Bool = false
 
+    /// True when the cursor is inside the currently-visible opened panel rect.
+    /// `NotchWindowController` subscribes to this to toggle the panel window's
+    /// `ignoresMouseEvents` — false inside, true outside — so clicks that land
+    /// in the window frame but outside the visible UI pass through to whatever
+    /// window is behind, instead of being silently absorbed by the full-width
+    /// 750pt-tall overlay panel.
+    @Published var mouseInsideOpenedPanel: Bool = false
+
     /// Live-measured intrinsic height of the menu's body (rows + dividers + its own
     /// padding), reported by `NotchMenuView` via a PreferenceKey on every layout
     /// pass. Drives `openedSize` for the menu so the panel — and the hit-test rect
@@ -183,6 +191,15 @@ class NotchViewModel: ObservableObject {
         let inNotch = geometry.isPointInNotch(location)
         let inOpened = status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
 
+        // Drive window-level click pass-through: capture clicks only when the
+        // cursor is actually over the visible panel. Outside the panel the
+        // window becomes mouse-transparent so dismiss clicks reach the app
+        // underneath — this is what makes the user's dismiss click count as
+        // a real click in Terminal/VSCode/etc. instead of needing a second one.
+        if mouseInsideOpenedPanel != inOpened {
+            mouseInsideOpenedPanel = inOpened
+        }
+
         let newHovering = inNotch || inOpened
 
         // Only update if changed to prevent unnecessary re-renders
@@ -240,6 +257,12 @@ class NotchViewModel: ObservableObject {
         openReason = reason
         status = .opened
 
+        // Seed pointer-in-panel state immediately so the window can flip to
+        // `ignoresMouseEvents = false` right at open, before the first
+        // mouseMoved event arrives. Otherwise a button click that follows the
+        // hover-triggered open before any movement would be dropped.
+        mouseInsideOpenedPanel = geometry.isPointInOpenedPanel(NSEvent.mouseLocation, size: openedSize)
+
         // Don't restore chat on notification - show instances list instead
         if reason == .notification {
             currentChatSession = nil
@@ -263,6 +286,7 @@ class NotchViewModel: ObservableObject {
         }
         status = .closed
         contentType = .instances
+        mouseInsideOpenedPanel = false
     }
 
     func notchPop() {
