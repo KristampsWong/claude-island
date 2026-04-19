@@ -4,6 +4,29 @@ All notable changes to this fork are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-04-19
+
+### Fixed
+- Dismiss clicks outside the open notch now reach the window underneath
+  on the first click — no more having to click twice to get cursor focus
+  back in Terminal / your editor / browser. The panel's NSWindow frame
+  is full-screen-width × 750 pt tall (to contain its drop-down
+  animation), and while the notch was open the entire frame was set to
+  `ignoresMouseEvents = false` so SwiftUI buttons would receive clicks,
+  which meant the window silently absorbed *any* click in that
+  rectangle — including clicks that visually looked like they should hit
+  the app underneath. `ignoresMouseEvents` is now driven by pointer
+  location: `false` only while the cursor is over the visible panel
+  rectangle, `true` everywhere else. No CGEvent synthesis, no TCC grant.
+  Fixes #5.
+- Latent bug in focus restoration: `previousApp` in
+  `NotchWindowController` was declared `weak`, but
+  `NSWorkspace.frontmostApplication` returns an autoreleased
+  `NSRunningApplication`. The weak ref went nil on the next autorelease
+  pool drain, long before the user clicked to dismiss, so
+  `prev.activate()` silently never ran. Changed to a strong reference.
+  Surfaced during the investigation of the click-absorption bug above.
+
 ## [1.0.2] - 2026-04-09
 
 ### Fixed
