@@ -15,8 +15,11 @@ class NotchWindowController: NSWindowController {
     private let playBootAnimation: Bool
     private var cancellables = Set<AnyCancellable>()
     /// The app that was frontmost before we opened the notch, so we can restore
-    /// it on close. Held weakly so a quit/crash of the previous app won't pin it.
-    private weak var previousApp: NSRunningApplication?
+    /// it on close. Must be strong: `NSWorkspace.frontmostApplication` returns an
+    /// autoreleased instance, and a weak ref goes nil on the next pool drain —
+    /// which is long before the user clicks to dismiss. Check `isTerminated` at
+    /// restore time instead of relying on lifetime tricks.
+    private var previousApp: NSRunningApplication?
 
     init(screen: NSScreen, playBootAnimation: Bool = true) {
         self.screen = screen
@@ -81,9 +84,11 @@ class NotchWindowController: NSWindowController {
             }
         }
 
-        // Dynamically toggle mouse event handling based on notch state:
-        // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)
-        // - Opened: ignoresMouseEvents = false (buttons inside panel work)
+        // Track status transitions for focus-management side-effects only.
+        // The window's `ignoresMouseEvents` is now driven by the pointer-in-
+        // panel publisher below, not by status directly, so that clicks
+        // landing in the window frame but outside the visible panel pass
+        // through to the app underneath (fixes KristampsWong/claude-island#5).
         viewModel.$status
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak notchWindow, weak viewModel] status in
@@ -95,27 +100,34 @@ class NotchWindowController: NSWindowController {
                     if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
                         self?.previousApp = frontmost
                     }
-                    // Accept mouse events when opened so buttons work
-                    notchWindow?.ignoresMouseEvents = false
                     // Don't steal app-level focus on open — just make the panel key
                     // so buttons work. NSApp.activate is deferred until the user
                     // actually interacts with a text field (see activateForInput).
-                    // Calling NSApp.activate here causes phantom events to be
-                    // observed by the global NSEvent mouse-down monitor and breaks
-                    // the click-then-move interaction on the notch.
                     if viewModel?.openReason != .notification {
                         notchWindow?.makeKey()
                     }
                 case .closed, .popping:
-                    // Ignore mouse events when closed so clicks pass through
-                    notchWindow?.ignoresMouseEvents = true
                     notchWindow?.resignKey()
-                    // Re-activate the app that was frontmost before we opened
+                    // Re-activate the app that was frontmost before we opened.
+                    // A strong ref is required on previousApp — NSRunningApplication
+                    // returned from frontmostApplication is autoreleased, so a weak
+                    // ref goes nil before this runs.
                     if let prev = self?.previousApp {
                         prev.activate()
                         self?.previousApp = nil
                     }
                 }
+            }
+            .store(in: &cancellables)
+
+        // Drive `ignoresMouseEvents` from pointer location (when opened) so
+        // clicks outside the visible panel rectangle pass through to the app
+        // underneath instead of being absorbed by the full-width 750pt-tall
+        // panel frame. When not opened, always ignore.
+        viewModel.$mouseInsideOpenedPanel
+            .receive(on: DispatchQueue.main)
+            .sink { [weak notchWindow] inside in
+                notchWindow?.ignoresMouseEvents = !inside
             }
             .store(in: &cancellables)
 
